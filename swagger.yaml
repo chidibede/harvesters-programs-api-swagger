@@ -9,7 +9,7 @@ info:
     Send the key as a **header only** (query `?x-api-key=` is **not** supported):
 
     ```
-    x-api-key: harv_prog_sound_e80037ceb09297890389840b
+    x-api-key: key
     ```
 
     Or: `Authorization: Bearer <api-key>`
