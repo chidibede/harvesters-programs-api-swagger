@@ -1,0 +1,1183 @@
+openapi: 3.0.3
+info:
+  title: Harvesters Programs Team API
+  description: |
+    API for Programs team departments. Authentication is **handler-level** (API key in request headers, not API Gateway).
+
+    ## Authentication
+
+    Send the key as a **header only** (query `?x-api-key=` is **not** supported):
+
+    ```
+    x-api-key: harv_prog_sound_e80037ceb09297890389840b
+    ```
+
+    Or: `Authorization: Bearer <api-key>`
+
+    | Key type | Scope |
+    |----------|--------|
+    | Department key | One Programs department |
+    | Master key | All Programs departments; pass `department` when a single dept is required |
+
+    ## Endpoints
+
+    | Method | Path | Description |
+    |--------|------|-------------|
+    | GET | `/api/programs/api-keys` | List keys (master only) |
+    | GET | `/api/programs/departments` | All Programs departments |
+    | GET | `/api/programs/workers` | Workers only (no attendance) |
+    | GET | `/api/programs/workers/attendance` | Workers + attendance for `activeDate` |
+    | POST | `/api/programs/workers` | Add worker (`PENDING_ADD`) |
+    | PUT | `/api/programs/workers/request-delete` | Request removal (`PENDING_DELETE`) |
+    | GET | `/api/programs/attendance` | Department attendance summary |
+    | POST | `/api/programs/attendance` | Mark attendance |
+    | GET | `/api/programs/attendance/history` | Attendance history |
+    | GET | `/api/programs/attendance/trends` | Top present/absent workers per department |
+    | GET | `/api/programs/birthdays/upcoming` | Upcoming birthdays in scope |
+
+    ## Typical flow
+
+    1. `GET /api/programs/workers` — roster (no date needed)
+    2. `GET /api/programs/workers/attendance?activeDate=...` — roster with marks for that Sunday
+    3. `POST /api/programs/attendance` — submit marks
+
+    ## Dates
+
+    Use the same format as the main app: `Sunday - D/M/YYYY` (e.g. `Sunday - 1/6/2026`). URL-encode spaces in query strings (`Sunday%20-%201/6/2026`).
+  version: 1.2.0
+  contact:
+    name: Harvesters Workforce
+
+servers:
+  - url: https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com
+    description: Production API Gateway
+
+tags:
+  - name: API Keys
+    description: Retrieve department and master API keys
+  - name: Departments
+    description: Programs team department directory
+  - name: Workers
+    description: Fetch roster, fetch roster with attendance, add (pending), request delete (pending)
+  - name: Attendance
+    description: Summary, mark attendance, history, trends
+  - name: Birthdays
+    description: Upcoming worker birthdays
+
+security:
+  - ProgramApiKey: []
+
+paths:
+  /api/programs/api-keys:
+    get:
+      tags: [API Keys]
+      summary: List all Programs API keys
+      description: Returns every department-scoped key plus the master key. **Requires the master API key.**
+      operationId: listProgramApiKeys
+      x-codeSamples:
+        - lang: curl
+          source: |
+            curl -s "https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com/api/programs/api-keys" \
+              -H "x-api-key: harv_prog_master_13d9321ff06f142d6a4dc8d9"
+      responses:
+        "200":
+          description: API key listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyListResponse"
+              example:
+                success: true
+                message: Program API keys
+                data:
+                  - department: Sound
+                    route: /sound
+                    apiKey: harv_prog_sound_e80037ceb09297890389840b
+                    scope: department
+                  - department: (all Programs departments)
+                    route: /programs
+                    apiKey: harv_prog_master_13d9321ff06f142d6a4dc8d9
+                    scope: master
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/programs/departments:
+    get:
+      tags: [Departments]
+      summary: List all Programs departments
+      description: |
+        Returns every department under the Programs team (`department`, `route`, `slug`).
+        Available to any valid Programs API key (department or master).
+      operationId: listProgramDepartments
+      responses:
+        "200":
+          description: Programs department list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentsListResponse"
+              example:
+                success: true
+                message: Programs departments fetched successfully
+                data:
+                  - department: Sound
+                    route: /sound
+                    slug: sound
+                  - department: Media-Video
+                    route: /mvideo
+                    slug: mvideo
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/programs/workers:
+    get:
+      tags: [Workers]
+      summary: Fetch workers (no attendance)
+      description: |
+        Returns worker records only — **no** `activeDate`, **no** attendance fields.
+
+        Use `GET /api/programs/workers/attendance` when you need marks for a Sunday.
+
+        - **Department key:** no query params required (scoped to your department).
+        - **Master key:** `department` query parameter is **required**.
+      operationId: fetchProgramWorkers
+      parameters:
+        - $ref: "#/components/parameters/department"
+      x-codeSamples:
+        - lang: curl
+          label: Department key
+          source: |
+            curl -s "https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com/api/programs/workers" \
+              -H "x-api-key: harv_prog_sound_e80037ceb09297890389840b"
+        - lang: curl
+          label: Master key
+          source: |
+            curl -s "https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com/api/programs/workers?department=Sound" \
+              -H "x-api-key: harv_prog_master_13d9321ff06f142d6a4dc8d9"
+      responses:
+        "200":
+          description: Workers list (no attendance)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkersListResponse"
+              example:
+                success: true
+                message: Workers fetched successfully
+                data:
+                  - id: 12045
+                    firstname: Jane
+                    lastname: Doe
+                    fullname: Jane Doe
+                    name: Jane Doe
+                    department: Sound
+                    team: Programs
+                    phonenumber: "08012345678"
+                    status: ACTIVE
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [Workers]
+      summary: Add worker (pending approval)
+      description: |
+        Creates a worker with status `PENDING_ADD`. Requires admin approval in the main system.
+        `team` is set to `Programs` automatically. `department` must match your API key scope.
+      operationId: addProgramWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWorkerRequest"
+            examples:
+              sound:
+                summary: Add worker to Sound
+                value:
+                  firstname: John
+                  lastname: Smith
+                  phonenumber: "08098765432"
+                  email: john.smith@example.com
+                  department: Sound
+                  workerrole: Technician
+                  gender: Male
+                  maritalstatus: Single
+                  campus: Gbagada
+      responses:
+        "200":
+          description: Worker created (pending)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddWorkerResponse"
+              example:
+                success: true
+                message: Worker submitted for approval (PENDING_ADD)
+                data:
+                  id: 12099
+                  firstname: John
+                  lastname: Smith
+                  fullname: John Smith
+                  department: Sound
+                  team: Programs
+                  status: PENDING_ADD
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/workers/attendance:
+    get:
+      tags: [Workers]
+      summary: Fetch workers with attendance
+      description: |
+        Returns the same worker roster as `GET /api/programs/workers`, plus attendance for the given `activeDate`.
+
+        **Query parameters**
+        - `activeDate` (required) — e.g. `Sunday - 1/6/2026`
+        - `department` — required for master key; optional for department key
+
+        **Response fields** (in addition to worker fields): `attendance`, `attendance_value`, `attendance_date`, `attendance_workerid`. Null when not yet marked for that date.
+
+        Only workers with status `ACTIVE`, null, or `PENDING_DELETE` are returned (same as workers endpoint).
+      operationId: fetchProgramWorkersAttendance
+      parameters:
+        - $ref: "#/components/parameters/activeDate"
+        - $ref: "#/components/parameters/department"
+      x-codeSamples:
+        - lang: curl
+          label: Department key (Sound)
+          source: |
+            curl -s "https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com/api/programs/workers/attendance?activeDate=Sunday%20-%201/6/2026" \
+              -H "x-api-key: harv_prog_sound_e80037ceb09297890389840b"
+        - lang: curl
+          label: Master key
+          source: |
+            curl -s "https://hchpk68xfh.execute-api.eu-west-1.amazonaws.com/api/programs/workers/attendance?department=Sound&activeDate=Sunday%20-%201/6/2026" \
+              -H "x-api-key: harv_prog_master_13d9321ff06f142d6a4dc8d9"
+      responses:
+        "200":
+          description: Workers with attendance for activeDate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkersWithAttendanceListResponse"
+              example:
+                success: true
+                message: Workers with attendance fetched successfully
+                data:
+                  - id: 12045
+                    firstname: Jane
+                    lastname: Doe
+                    fullname: Jane Doe
+                    name: Jane Doe
+                    department: Sound
+                    team: Programs
+                    phonenumber: "08012345678"
+                    status: ACTIVE
+                    attendance: Present
+                    attendance_value: Present
+                    attendance_date: "Sunday - 1/6/2026"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/workers/request-delete:
+    put:
+      tags: [Workers]
+      summary: Request worker removal (pending delete)
+      description: |
+        Marks a worker as `PENDING_DELETE`. Requires admin approval to complete removal.
+        Worker must belong to a Programs department your key can access.
+      operationId: requestDeleteProgramWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestDeleteWorkerRequest"
+            example:
+              workerid: 12045
+              deleteData:
+                reasonfordelete: Relocated out of city
+                nameofrequester: Team Lead Name
+                roleofrequester: HOD
+      responses:
+        "200":
+          description: Removal requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+              example:
+                success: true
+                message: Worker removal requested (PENDING_DELETE)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Worker not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                message: Worker not found
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/attendance:
+    get:
+      tags: [Attendance]
+      summary: Fetch attendance summary
+      description: |
+        Department-level attendance summary for Programs on `activeDate`.
+        Optional `department` filters results (master key can omit to get all Programs departments).
+      operationId: fetchProgramAttendance
+      parameters:
+        - $ref: "#/components/parameters/activeDate"
+        - $ref: "#/components/parameters/departmentOptional"
+      responses:
+        "200":
+          description: Attendance summary by department
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceSummaryResponse"
+              example:
+                success: true
+                message: Attendance fetched successfully
+                data:
+                  - id: 1
+                    department: Sound
+                    team: Programs
+                    present: 12
+                    absent: 3
+                    total: 15
+                    percentage: "80.00%"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [Attendance]
+      summary: Mark attendance
+      description: |
+        Upserts attendance records for the given Sunday date.
+        Replaces existing records for the same workers on the same date.
+        Each record's `department` must be within your API key scope.
+      operationId: markProgramAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkAttendanceRequest"
+            example:
+              attendance:
+                - workerid: 12045
+                  name: Jane Doe
+                  attendance: Present
+                  attendancedate: "Sunday - 1/6/2026"
+                  department: Sound
+                  team: Programs
+                - workerid: 12046
+                  name: John Smith
+                  attendance: Online
+                  attendancedate: "Sunday - 1/6/2026"
+                  department: Sound
+                  team: Programs
+      responses:
+        "200":
+          description: Attendance saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageResponse"
+              example:
+                success: true
+                message: Attendance added successfully
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/attendance/history:
+    get:
+      tags: [Attendance]
+      summary: Attendance history
+      description: |
+        Returns attendance records grouped by department and date.
+        Department key: scoped to that department. Master key: all Programs departments unless `department` is set.
+      operationId: fetchProgramAttendanceHistory
+      parameters:
+        - name: fromDate
+          in: query
+          description: Start date (inclusive), same format as activeDate
+          schema:
+            type: string
+          example: "Sunday - 1/1/2026"
+        - name: toDate
+          in: query
+          description: End date (inclusive)
+          schema:
+            type: string
+          example: "Sunday - 1/6/2026"
+        - $ref: "#/components/parameters/departmentOptional"
+      responses:
+        "200":
+          description: Grouped history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceHistoryResponse"
+              example:
+                success: true
+                message: Attendance history fetched successfully
+                data:
+                  Sound:
+                    "Sunday - 1/6/2026":
+                      - id: 9001
+                        workerid: 12045
+                        name: Jane Doe
+                        attendance: Present
+                        attendancedate: "Sunday - 1/6/2026"
+                        department: Sound
+                        team: Programs
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/attendance/trends:
+    get:
+      tags: [Attendance]
+      summary: Attendance trends
+      description: |
+        Top present and top absent workers per department for a date range.
+        Defaults to current calendar year if `startDate` / `endDate` omitted.
+
+        - **Department key:** trends for your department only.
+        - **Master key:** all Programs departments, or filter with `department`.
+      operationId: fetchProgramAttendanceTrends
+      parameters:
+        - name: startDate
+          in: query
+          description: Range start (`YYYY-MM-DD`). Default — Jan 1 current year.
+          schema:
+            type: string
+            format: date
+          example: "2026-01-01"
+        - name: endDate
+          in: query
+          description: Range end (`YYYY-MM-DD`). Default — Dec 31 current year.
+          schema:
+            type: string
+            format: date
+          example: "2026-12-31"
+        - name: limit
+          in: query
+          description: Max workers per top-present / top-absent list (default 5)
+          schema:
+            type: integer
+            minimum: 1
+            default: 5
+          example: 5
+        - $ref: "#/components/parameters/departmentOptional"
+      responses:
+        "200":
+          description: Trends by department
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceTrendsResponse"
+              example:
+                success: true
+                message: Attendance trends fetched successfully
+                data:
+                  Sound:
+                    topPresent:
+                      - workerid: 12045
+                        name: Jane Doe
+                        count: 18
+                    topAbsent:
+                      - workerid: 12099
+                        name: John Smith
+                        count: 4
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/programs/birthdays/upcoming:
+    get:
+      tags: [Birthdays]
+      summary: Upcoming birthdays
+      description: |
+        Workers in your API key scope whose next birthday falls within the next `days` days (including today).
+
+        Sorted by `daysUntil` ascending. Workers without a parseable `birthdate` are omitted.
+      operationId: fetchProgramUpcomingBirthdays
+      parameters:
+        - name: days
+          in: query
+          description: Look-ahead window in days (default 30). Use `0` for today only.
+          schema:
+            type: integer
+            minimum: 0
+            default: 30
+          example: 30
+        - $ref: "#/components/parameters/departmentOptional"
+      responses:
+        "200":
+          description: Upcoming birthdays
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpcomingBirthdaysResponse"
+              example:
+                success: true
+                message: Upcoming birthdays fetched successfully
+                data:
+                  daysAhead: 30
+                  count: 2
+                  birthdays:
+                    - id: 12045
+                      name: Jane Doe
+                      department: Sound
+                      email: jane@example.com
+                      birthdate: 10th May
+                      daysUntil: 0
+                      isToday: true
+                      nextBirthdayDate: "2026-06-02"
+                    - id: 12099
+                      name: John Smith
+                      department: Sound
+                      birthdate: 15th June
+                      daysUntil: 13
+                      isToday: false
+                      nextBirthdayDate: "2026-06-15"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    ProgramApiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: |
+        Programs team API key (department-scoped or master).
+        Must be sent as header `x-api-key` or `Authorization: Bearer <key>`.
+        **Do not** pass the key as a query parameter.
+
+  parameters:
+    activeDate:
+      name: activeDate
+      in: query
+      required: true
+      description: Service date (Sunday attendance date)
+      schema:
+        type: string
+      example: "Sunday - 1/6/2026"
+    department:
+      name: department
+      in: query
+      required: false
+      description: |
+        Programs department name (exact match, see enum).
+        **Department key:** optional (defaults to your key's department).
+        **Master key:** required for `GET /workers` and `GET /workers/attendance`.
+      schema:
+        $ref: "#/components/schemas/ProgramDepartment"
+      example: Sound
+    departmentOptional:
+      name: department
+      in: query
+      required: false
+      description: Filter to one Programs department
+      schema:
+        $ref: "#/components/schemas/ProgramDepartment"
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: Invalid API key
+    Forbidden:
+      description: API key cannot access resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: API key cannot access this department
+    InternalError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: Internal Server Error
+
+  schemas:
+    ProgramDepartment:
+      type: string
+      description: Must be an exact Programs team department name
+      enum:
+        - Sapphire ET
+        - Musicians
+        - Diamond ET
+        - Emerald ET
+        - Pearl ET
+        - Greeters - Team Yahweh
+        - Greeters - Team Jireh
+        - Greeters - Team Nissi
+        - Greeters - Team Rapha
+        - Harvesters Intelligence Unit
+        - Media-Administration
+        - Media-Experience
+        - Media-Graphics
+        - Media-Light
+        - Media-Livestream
+        - Media-Photo (Capturing)
+        - Media-Text & Timing
+        - Media-Video
+        - Media-Visuals
+        - Media-Audio Production
+        - Media-Equipment Management
+        - Program Management
+        - Protocol
+        - Sound
+        - Quality Assurance
+        - Unveil
+        - Traffic
+        - Ushering - Bimpe
+        - Ushering - Queen
+        - Ushering - Iyaanu
+        - Ushering - Tosin
+        - Ushering - Kofoworola
+        - Programs Admin Team
+        - Venue Management - Zeina team
+        - Venue Management - Tosin Agbetuyi team
+        - Venue Management - Emmanuel team
+        - Venue Management - Boluwatife team
+        - Venue Management - Feyisayo Phillip team
+
+    AttendanceStatus:
+      type: string
+      enum:
+        - Present
+        - Online
+        - Absent
+        - "Not recorded"
+      description: Defaults to `Not recorded` if omitted when marking attendance
+
+    WorkerStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - PENDING_ADD
+        - PENDING_DELETE
+        - INACTIVE
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+      required: [success, message]
+
+    SuccessMessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success, message]
+
+    ProgramDepartmentEntry:
+      type: object
+      properties:
+        department:
+          type: string
+        route:
+          type: string
+          example: /sound
+        slug:
+          type: string
+          example: sound
+      required: [department, route, slug]
+
+    DepartmentsListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProgramDepartmentEntry"
+      required: [success, message, data]
+
+    AttendanceTrendWorker:
+      type: object
+      properties:
+        workerid:
+          type: integer
+        name:
+          type: string
+        count:
+          type: integer
+
+    AttendanceTrendDepartment:
+      type: object
+      properties:
+        topPresent:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceTrendWorker"
+        topAbsent:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceTrendWorker"
+
+    AttendanceTrendsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/AttendanceTrendDepartment"
+          description: Keys are department names
+      required: [success, message, data]
+
+    UpcomingBirthday:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phonenumber:
+          type: string
+          nullable: true
+        birthdate:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        daysUntil:
+          type: integer
+          description: 0 = birthday is today
+        nextBirthdayDate:
+          type: string
+          format: date
+        isToday:
+          type: boolean
+
+    UpcomingBirthdaysResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            daysAhead:
+              type: integer
+            count:
+              type: integer
+            birthdays:
+              type: array
+              items:
+                $ref: "#/components/schemas/UpcomingBirthday"
+          required: [daysAhead, count, birthdays]
+      required: [success, message, data]
+
+    ApiKeyListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              department:
+                type: string
+              route:
+                type: string
+              apiKey:
+                type: string
+              scope:
+                type: string
+                enum: [department, master]
+            required: [department, route, apiKey, scope]
+      required: [success, message, data]
+
+    WorkerRecord:
+      type: object
+      description: Worker only (`GET /api/programs/workers`). No attendance fields.
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          nullable: true
+          description: Trimmed `fullname`
+        firstname:
+          type: string
+          nullable: true
+        lastname:
+          type: string
+          nullable: true
+        othername:
+          type: string
+          nullable: true
+        fullname:
+          type: string
+          nullable: true
+        fullnamereverse:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phonenumber:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
+        workerrole:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/WorkerStatus"
+        gender:
+          type: string
+          nullable: true
+        maritalstatus:
+          type: string
+          nullable: true
+        campus:
+          type: string
+          nullable: true
+        birthdate:
+          type: string
+          nullable: true
+        agerange:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        employment:
+          type: string
+          nullable: true
+        occupation:
+          type: string
+          nullable: true
+        ispresent:
+          type: boolean
+          nullable: true
+        createdat:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id]
+
+    WorkersListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: Workers fetched successfully
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerRecord"
+      required: [success, message, data]
+
+    WorkerWithAttendanceRecord:
+      allOf:
+        - $ref: "#/components/schemas/WorkerRecord"
+        - type: object
+          description: Additional fields from `GET /api/programs/workers/attendance`
+          properties:
+            attendance:
+              type: string
+              nullable: true
+              description: Attendance status for `activeDate` (same as `attendance_value`)
+            attendance_workerid:
+              type: integer
+              nullable: true
+            attendance_value:
+              type: string
+              nullable: true
+              description: Present, Online, Absent, or null if unmarked
+            attendance_date:
+              type: string
+              nullable: true
+              example: "Sunday - 1/6/2026"
+
+    WorkersWithAttendanceListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: Workers with attendance fetched successfully
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerWithAttendanceRecord"
+      required: [success, message, data]
+
+    AddWorkerRequest:
+      type: object
+      required: [department]
+      properties:
+        firstname:
+          type: string
+        lastname:
+          type: string
+        othername:
+          type: string
+        phonenumber:
+          type: string
+        email:
+          type: string
+        department:
+          $ref: "#/components/schemas/ProgramDepartment"
+        workerrole:
+          type: string
+        gender:
+          type: string
+        maritalstatus:
+          type: string
+        birthdate:
+          type: string
+        agerange:
+          type: string
+        address:
+          type: string
+        employment:
+          type: string
+        occupation:
+          type: string
+        campus:
+          type: string
+
+    AddWorkerResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          $ref: "#/components/schemas/WorkerRecord"
+      required: [success, message, data]
+
+    RequestDeleteWorkerRequest:
+      type: object
+      required: [workerid]
+      properties:
+        workerid:
+          type: integer
+          description: Worker `id` from GET /api/programs/workers
+        deleteData:
+          type: object
+          properties:
+            reasonfordelete:
+              type: string
+            nameofrequester:
+              type: string
+            roleofrequester:
+              type: string
+
+    AttendanceRecord:
+      type: object
+      required: [workerid, department, attendancedate]
+      properties:
+        workerid:
+          type: integer
+        name:
+          type: string
+          description: Worker display name
+        attendance:
+          $ref: "#/components/schemas/AttendanceStatus"
+        attendancedate:
+          type: string
+          example: "Sunday - 1/6/2026"
+        department:
+          $ref: "#/components/schemas/ProgramDepartment"
+        team:
+          type: string
+          example: Programs
+
+    MarkAttendanceRequest:
+      type: object
+      required: [attendance]
+      properties:
+        attendance:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AttendanceRecord"
+
+    AttendanceSummaryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        department:
+          type: string
+        team:
+          type: string
+        present:
+          type: integer
+        absent:
+          type: integer
+        total:
+          type: integer
+        percentage:
+          type: string
+
+    AttendanceSummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceSummaryItem"
+      required: [success, message, data]
+
+    AttendanceHistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties:
+            type: object
+            description: Keys are department names
+            additionalProperties:
+              type: array
+              description: Keys are attendancedate strings
+              items:
+                $ref: "#/components/schemas/AttendanceHistoryRecord"
+      required: [success, message, data]
+
+    AttendanceHistoryRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        workerid:
+          type: integer
+          nullable: true
+        name:
+          type: string
+        attendance:
+          type: string
+        attendancedate:
+          type: string
+        department:
+          type: string
+          nullable: true
+        team:
+          type: string
+          nullable: true
